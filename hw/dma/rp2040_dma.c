@@ -146,13 +146,24 @@ static uint32_t rp2040_dma_treq(RP2040DmaChannel *ch)
     return (ch->ctrl & DMA_CTRL_TREQ_SEL_MASK) >> DMA_CTRL_TREQ_SEL_SHIFT;
 }
 
-static bool rp2040_dma_treq_is_ready_sink(uint32_t treq)
+static bool rp2040_dma_treq_is_pio_tx(uint32_t treq)
+{
+    /* Unsigned wrap-around turns each range check into one comparison. */
+    return treq - RP2040_DREQ_PIO0_TX0 < RP2040_DREQ_PIO_TX_PER_BLOCK ||
+           treq - RP2040_DREQ_PIO1_TX0 < RP2040_DREQ_PIO_TX_PER_BLOCK;
+}
+
+static bool rp2040_dma_treq_is_ready_sink(RP2040DmaState *s, uint32_t treq)
 {
     /*
      * The current XIP/SSI TX model does not have a finite TX FIFO: writes to
-     * its data register are accepted immediately.
+     * its data register are accepted immediately.  PIO is not modelled; with
+     * "pio-tx-sink" its TX FIFO requests are treated the same way, so
+     * firmware that streams to a PIO state machine (LED drivers, for example)
+     * sees its transfers complete instead of waiting forever.
      */
-    return treq == RP2040_DREQ_XIP_SSITX;
+    return treq == RP2040_DREQ_XIP_SSITX ||
+           (s->pio_tx_sink && rp2040_dma_treq_is_pio_tx(treq));
 }
 
 static bool rp2040_dma_treq_is_connected_level(uint32_t treq)
@@ -491,7 +502,7 @@ static void rp2040_dma_start_channel(RP2040DmaState *s, unsigned index)
     ch->paced_nyi_logged = false;
 
     treq = rp2040_dma_treq(ch);
-    if (treq == RP2040_DREQ_FORCE || rp2040_dma_treq_is_ready_sink(treq)) {
+    if (treq == RP2040_DREQ_FORCE || rp2040_dma_treq_is_ready_sink(s, treq)) {
         rp2040_dma_run_beats(s, index, UINT32_MAX);
     } else if ((rp2040_dma_treq_is_connected_level(treq) ||
                 treq == RP2040_DREQ_XIP_SSIRX) && s->dreq_level[treq]) {
@@ -980,6 +991,7 @@ static const VMStateDescription rp2040_dma_vmstate = {
 static const Property rp2040_dma_properties[] = {
     DEFINE_PROP_LINK("memory", RP2040DmaState, dma_mr, TYPE_MEMORY_REGION,
                      MemoryRegion *),
+    DEFINE_PROP_BOOL("pio-tx-sink", RP2040DmaState, pio_tx_sink, false),
 };
 
 static void rp2040_dma_class_init(ObjectClass *klass, const void *data)

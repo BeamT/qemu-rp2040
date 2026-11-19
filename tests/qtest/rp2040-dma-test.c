@@ -46,6 +46,8 @@
 #define DMA_SNIFF_CTRL_CALC_SUM (0xf << 5)
 #define DMA_SNIFF_CTRL_EN       BIT(0)
 
+#define DREQ_PIO0_TX0           0
+#define DREQ_PIO1_TX3           11
 #define DREQ_DMA_TIMER0         59
 #define DREQ_XIP_SSIRX          39
 #define DREQ_FORCE              63
@@ -91,6 +93,45 @@ static void test_dma_xip_ssi_rx_dreq(void)
                     DMA_CTRL_BUSY, ==, 0);
     g_assert_cmphex(qtest_readl(qts, SRAM_BASE), ==, 0);
 
+    qtest_quit(qts);
+}
+
+/* Starts a PIO TX paced memory copy; returns whether the channel completed. */
+static bool pio_tx_copy_completes(QTestState *qts, uint32_t treq)
+{
+    const uint32_t source[] = { 0x11111111, 0x22222222 };
+    uint32_t read_addr = SRAM_BASE + 0x80;
+    uint32_t write_addr = SRAM_BASE + 0x100;
+    uint32_t ctrl = DMA_CTRL_EN | DMA_CTRL_INCR_READ | DMA_CTRL_INCR_WRITE |
+                    DMA_CTRL_DATA_SIZE_32 | (treq << DMA_CTRL_TREQ_SEL_SHIFT);
+
+    qtest_memwrite(qts, read_addr, source, sizeof(source));
+    qtest_writel(qts, DMA_BASE + DMA_CH_READ_ADDR, read_addr);
+    qtest_writel(qts, DMA_BASE + DMA_CH_WRITE_ADDR, write_addr);
+    qtest_writel(qts, DMA_BASE + DMA_CH_TRANS_COUNT, ARRAY_SIZE(source));
+    qtest_writel(qts, DMA_BASE + DMA_CH_CTRL_TRIG, ctrl);
+    qtest_clock_step(qts, 1000000);
+
+    return !(qtest_readl(qts, DMA_BASE + DMA_CH_AL1_CTRL) & DMA_CTRL_BUSY) &&
+           qtest_readl(qts, DMA_BASE + DMA_CH_TRANS_COUNT) == 0 &&
+           qtest_readl(qts, write_addr + 4) == source[1];
+}
+
+static void test_dma_pio_tx_unpaced_by_default(void)
+{
+    QTestState *qts = rp2040_start();
+
+    g_assert_false(pio_tx_copy_completes(qts, DREQ_PIO0_TX0));
+    qtest_quit(qts);
+}
+
+static void test_dma_pio_tx_sink(void)
+{
+    QTestState *qts = qtest_init("-machine raspi-pico "
+                                 "-global rp2040-dma.pio-tx-sink=on");
+
+    g_assert_true(pio_tx_copy_completes(qts, DREQ_PIO0_TX0));
+    g_assert_true(pio_tx_copy_completes(qts, DREQ_PIO1_TX3));
     qtest_quit(qts);
 }
 
@@ -373,6 +414,10 @@ int main(int argc, char **argv)
                    test_dma_timer_dreq);
     qtest_add_func("/rp2040-dma/control-blocks",
                    test_dma_control_blocks);
+    qtest_add_func("/rp2040-dma/pio-tx-unpaced-by-default",
+                   test_dma_pio_tx_unpaced_by_default);
+    qtest_add_func("/rp2040-dma/pio-tx-sink",
+                   test_dma_pio_tx_sink);
 
     return g_test_run();
 }

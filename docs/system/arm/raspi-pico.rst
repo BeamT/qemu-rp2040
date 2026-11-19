@@ -56,7 +56,10 @@ This machine is not a complete RP2040 model.  The following blocks are not
 implemented, or are only present as shallow register storage:
 
  * PIO state machines, instruction execution, FIFOs, IRQs and DMA pacing are
-   not implemented.
+   not implemented.  For firmware that streams to PIO through DMA, the
+   ``rp2040-dma.pio-tx-sink`` property (off by default) treats the PIO TX
+   FIFO requests as always ready, so those transfers complete; the data is
+   discarded by the unimplemented PIO block.
  * USB device and host transactions, endpoint state machines and BOOTSEL
    mass-storage programming are not implemented.  USB DPRAM and the basic
    controller register window exist for firmware probing only.

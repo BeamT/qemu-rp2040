@@ -21,6 +21,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(RP2040DmaState, RP2040_DMA)
 #define RP2040_DMA_NUM_DREQS 64
 #define RP2040_DMA_NUM_TIMERS 4
 
+#define RP2040_DREQ_PIO0_TX0 0
+#define RP2040_DREQ_PIO1_TX0 8
+#define RP2040_DREQ_PIO_TX_PER_BLOCK 4
 #define RP2040_DREQ_UART0_TX 20
 #define RP2040_DREQ_UART0_RX 21
 #define RP2040_DREQ_UART1_TX 22
@@ -72,6 +75,7 @@ struct RP2040DmaState {
     uint32_t pending_start;
     bool dreq_level[RP2040_DMA_NUM_DREQS];
     uint32_t pending_dreq[RP2040_DMA_NUM_DREQS];
+    bool pio_tx_sink;
 };
 
 #endif
