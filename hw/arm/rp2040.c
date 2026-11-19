@@ -28,6 +28,10 @@
 
 #include <math.h>
 
+#define RP2040_SPI0_BASE  0x4003c000
+#define RP2040_SPI0_IRQ   18
+#define RP2040_SPI1_BASE  0x40040000
+#define RP2040_SPI1_IRQ   19
 #define RP2040_UART0_BASE 0x40034000
 #define RP2040_UART0_IRQ  20
 #define RP2040_UART1_BASE 0x40038000
@@ -247,8 +251,6 @@ static const struct {
     hwaddr base;
     hwaddr size;
 } rp2040_unimplemented[] = {
-    { "rp2040.spi0",     0x4003c000, 0x4000 },
-    { "rp2040.spi1",     0x40040000, 0x4000 },
     { "rp2040.i2c0",     0x40044000, 0x4000 },
     { "rp2040.i2c1",     0x40048000, 0x4000 },
     { "rp2040.adc",      0x4004c000, 0x4000 },
@@ -1672,6 +1674,12 @@ static void rp2040_soc_init(Object *obj)
                                   "chardev");
     }
 
+    for (i = 0; i < ARRAY_SIZE(s->spi); i++) {
+        g_autofree char *name = g_strdup_printf("spi%d", i);
+
+        object_initialize_child(obj, name, &s->spi[i], TYPE_PL022);
+    }
+
     object_initialize_child(obj, "xip", &s->xip, TYPE_RP2040_XIP);
     object_initialize_child(obj, "busctrl", &s->busctrl,
                             TYPE_RP2040_BUSCTRL);
@@ -1811,11 +1819,53 @@ static bool rp2040_load_bootrom(RP2040State *s, Error **errp)
                                RP2040_ROM_SIZE, errp) >= 0;
 }
 
+/*
+ * SPI0/SPI1 are ARM PrimeCell SSP (PL022) blocks. The RP2040 adds XOR, SET
+ * and CLR register aliases at +0x1000, +0x2000 and +0x3000; the Pico SDK
+ * enables the port with hw_set_bits(). Each alias write is a read-modify-write
+ * of the PL022 register. Alias reads return the register, as on hardware.
+ */
+#define RP2040_SPI_ALIAS_SIZE (RP2040_ATOMIC_CLR + 0x1000 - RP2040_ATOMIC_XOR)
+
+static uint64_t rp2040_spi_alias_read(void *opaque, hwaddr addr, unsigned size)
+{
+    uint64_t value = 0;
+
+    memory_region_dispatch_read(opaque, addr & 0xfff, &value, MO_32,
+                                MEMTXATTRS_UNSPECIFIED);
+    return value;
+}
+
+static void rp2040_spi_alias_write(void *opaque, hwaddr addr, uint64_t value,
+                                   unsigned size)
+{
+    hwaddr offset = addr + RP2040_ATOMIC_XOR;
+    hwaddr reg = offset & 0xfff;
+    uint64_t old = 0;
+
+    memory_region_dispatch_read(opaque, reg, &old, MO_32,
+                                MEMTXATTRS_UNSPECIFIED);
+    value = rp2040_atomic_update(old, value,
+                                 offset & RP2040_ATOMIC_ALIAS_MASK);
+    memory_region_dispatch_write(opaque, reg, value, MO_32,
+                                 MEMTXATTRS_UNSPECIFIED);
+}
+
+static const MemoryRegionOps rp2040_spi_alias_ops = {
+    .read = rp2040_spi_alias_read,
+    .write = rp2040_spi_alias_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid.min_access_size = 4,
+    .valid.max_access_size = 4,
+};
+
 static void rp2040_soc_realize(DeviceState *dev, Error **errp)
 {
     RP2040State *s = RP2040(dev);
     static const hwaddr uart_base[] = { RP2040_UART0_BASE, RP2040_UART1_BASE };
     static const int uart_irq[] = { RP2040_UART0_IRQ, RP2040_UART1_IRQ };
+    static const hwaddr spi_base[] = { RP2040_SPI0_BASE, RP2040_SPI1_BASE };
+    static const int spi_irq[] = { RP2040_SPI0_IRQ, RP2040_SPI1_IRQ };
     Error *err = NULL;
     int i;
 
@@ -2084,6 +2134,23 @@ static void rp2040_soc_realize(DeviceState *dev, Error **errp)
             qdev_get_gpio_in_named(DEVICE(&s->dma), "dreq",
                                    i ? RP2040_DREQ_UART1_RX :
                                        RP2040_DREQ_UART0_RX));
+    }
+
+    for (i = 0; i < ARRAY_SIZE(s->spi); i++) {
+        MemoryRegion *regs;
+
+        if (!sysbus_realize(SYS_BUS_DEVICE(&s->spi[i]), errp)) {
+            return;
+        }
+        regs = sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->spi[i]), 0);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->spi[i]), 0, spi_base[i]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->spi[i]), 0, s->irq[spi_irq[i]]);
+        memory_region_init_io(&s->spi_alias[i], OBJECT(s),
+                              &rp2040_spi_alias_ops, regs,
+                              "rp2040.spi-atomic", RP2040_SPI_ALIAS_SIZE);
+        memory_region_add_subregion(s->board_memory,
+                                    spi_base[i] + RP2040_ATOMIC_XOR,
+                                    &s->spi_alias[i]);
     }
     rp2040_update_nmi(s);
     rp2040_update_uart_pins(s);

@@ -45,6 +45,8 @@ Supported devices
  * DMA engine with memory, UART, XIP stream, XIP/SSI RX and timer DREQ support
  * IO_BANK0, IO_QSPI, PADS_BANK0 and PADS_QSPI shallow pin-control models
  * UART0 and UART1 through QEMU serial backends
+ * SPI0 and SPI1 as PL022 controllers, including the RP2040 XOR/SET/CLR
+   register aliases; each exposes an ``ssi`` bus for attached devices
  * USB DPRAM and shallow USB controller register storage
 
 Unsupported or shallow devices
@@ -58,8 +60,10 @@ implemented, or are only present as shallow register storage:
  * USB device and host transactions, endpoint state machines and BOOTSEL
    mass-storage programming are not implemented.  USB DPRAM and the basic
    controller register window exist for firmware probing only.
- * SPI0, SPI1, I2C0, I2C1, PWM, ADC and the temperature sensor are not
-   implemented.
+ * I2C0, I2C1, PWM, ADC and the temperature sensor are not implemented.
+ * SPI DMA requests are not connected, and SPI chip-select pins are not
+   wired: firmware that drives chip select as a GPIO does not frame
+   transfers for attached devices.
  * BUSCTRL does not model arbitration.  Its performance counters are
    deterministic programmer-visible counters, not measurements of actual bus
    events.

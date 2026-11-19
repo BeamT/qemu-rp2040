@@ -11,6 +11,7 @@
 
 #include "hw/arm/armv7m.h"
 #include "hw/char/pl011.h"
+#include "hw/ssi/pl022.h"
 #include "hw/core/clock.h"
 #include "hw/core/sysbus.h"
 #include "hw/dma/rp2040_dma.h"
@@ -66,6 +67,7 @@ struct RP2040State {
 
     ARMv7MState armv7m[RP2040_NUM_CORES];
     PL011State uart[2];
+    PL022State spi[2];
     RP2040BusCtrlState busctrl;
     RP2040ClocksState clocks;
     RP2040DmaState dma;
@@ -91,6 +93,7 @@ struct RP2040State {
     MemoryRegion *board_memory;
     MemoryRegion cpu_memory[RP2040_NUM_CORES];
     MemoryRegion cpu_board_alias[RP2040_NUM_CORES];
+    MemoryRegion spi_alias[2];
     MemoryRegion rom;
     MemoryRegion sram[6];
     MemoryRegion usbctrl_dpram;
