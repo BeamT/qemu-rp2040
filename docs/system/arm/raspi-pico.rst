@@ -92,6 +92,26 @@ implemented, or are only present as shallow register storage:
    ``pipico.rom``; QEMU does not ship that ROM image, and USB BOOTSEL
    mass-storage mode is not implemented.
 
+Focal Consumer Duo board (``duo-rp2040``)
+-----------------------------------------
+
+``duo-rp2040`` is the same RP2040 model wired as the Focal Consumer Duo's
+RP2040 board, so its unmodified production images (a second-stage bootloader
+and two application banks) boot from a raw ``flash-file``:
+
+ * 16 MiB of external flash, so the application banks above 2 MiB are
+   addressable.
+ * An ``mcp23s17`` I/O expander on SPI1.  The firmware drives its chip select
+   from a GPIO, which is not wired, so transfers are framed as opcode,
+   register and one data byte.  Pins are not modelled.
+ * ``rp2040-dma.pio-tx-sink`` is on: the board's LED strips stream to PIO
+   through DMA, and those transfers complete with the data discarded.
+
+All ``raspi-pico`` options apply::
+
+  $ qemu-system-arm -machine duo-rp2040,flash-file=flash.bin \
+      -display none -serial tcp:127.0.0.1:4555,server,nowait
+
 Boot options
 ------------
 

@@ -33,3 +33,7 @@ config ZAURUS_SCOOP
 
 config CADENCE_GPIO
     bool
+
+config MCP23S17
+    bool
+    depends on SSI

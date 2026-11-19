@@ -357,6 +357,7 @@ config RASPI_PICO
     default y
     depends on TCG && ARM
     select RP2040
+    select MCP23S17
 
 config RP2040
     bool

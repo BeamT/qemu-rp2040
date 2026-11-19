@@ -27,6 +27,9 @@ rp2040_uart_qemu_args = ['-M', 'raspi-pico,strict-uart-pins=off',
 rp2040_uart1_qemu_args = ['-M', 'raspi-pico,strict-uart-pins=off',
                           '-monitor', 'none', '-serial', 'null',
                           '-serial', 'stdio', qemu_base_args]
+duo_rp2040_qemu_args = ['-M', 'duo-rp2040,strict-uart-pins=off',
+                        '-monitor', 'none', '-serial', 'stdio',
+                        qemu_base_args]
 rp2040_flash_persist = find_program('rp2040-flash-persist.sh')
 rp2040_check_exit = find_program('rp2040-check-exit.sh')
 
@@ -108,6 +111,11 @@ tests += {
     'cflags': rp2040_cflags,
     'qemu_args': rp2040_uart_qemu_args,
     'expected_output': 'rp2040-spi.ref',
+  },
+  'rp2040-duo-board.S': {
+    'cflags': rp2040_cflags,
+    'qemu_args': duo_rp2040_qemu_args,
+    'expected_output': 'rp2040-duo-board.ref',
   },
   'rp2040-timer.S': {
     'cflags': rp2040_cflags,

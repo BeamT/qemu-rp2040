@@ -14,6 +14,8 @@
 #include "hw/arm/rp2040.h"
 #include "hw/core/boards.h"
 #include "hw/core/qdev-properties.h"
+#include "hw/gpio/mcp23s17.h"
+#include "hw/ssi/ssi.h"
 #include "qemu/cutils.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
@@ -34,6 +36,13 @@ struct RaspiPicoMachineState {
     bool rosc_random_seed_set;
     bool strict_uart_pins;
     bool pico_sdk_exit;
+    /*
+     * Board variants (duo-rp2040) set these in their instance init. Zero and
+     * false keep the device defaults, so -global still overrides them.
+     */
+    uint32_t flash_size;
+    bool pio_tx_sink;
+    bool spi1_mcp23s17;
 };
 
 static char *raspi_pico_get_flash_file(Object *obj, Error **errp)
@@ -138,6 +147,13 @@ static void raspi_pico_init(MachineState *machine)
     qdev_prop_set_bit(DEVICE(&s->soc.rosc), "random-seed-set",
                       s->rosc_random_seed_set);
     qdev_prop_set_uint32(DEVICE(&s->soc.sio), "gpio-hi-in", 1u << 1);
+    if (s->flash_size) {
+        qdev_prop_set_uint32(DEVICE(&s->soc.xip), "flash-size",
+                             s->flash_size);
+    }
+    if (s->pio_tx_sink) {
+        qdev_prop_set_bit(DEVICE(&s->soc.dma), "pio-tx-sink", true);
+    }
     if (s->flash_file) {
         qdev_prop_set_string(DEVICE(&s->soc.xip), "flash-file",
                              s->flash_file);
@@ -154,12 +170,17 @@ static void raspi_pico_init(MachineState *machine)
                              OBJECT(system_memory), &error_fatal);
 
     sysbus_realize(SYS_BUS_DEVICE(&s->soc), &error_fatal);
+    if (s->spi1_mcp23s17) {
+        ssi_create_peripheral(s->soc.spi[1].ssi, TYPE_MCP23S17);
+    }
 
     rp2040_xip_load_image(&s->soc.xip, machine->kernel_filename,
                           &error_fatal);
     rp2040_set_pico_sdk_exit(&s->soc, s->pico_sdk_exit, &error_fatal);
     armv7m_load_kernel(s->soc.armv7m[0].cpu, NULL,
-                       RP2040_XIP_BASE, 2 * MiB);
+                       RP2040_XIP_BASE,
+                       object_property_get_uint(OBJECT(&s->soc.xip),
+                                                "flash-size", &error_abort));
     rp2040_xip_set_writable(&s->soc.xip, false);
 }
 
@@ -266,8 +287,40 @@ static const TypeInfo raspi_pico_machine_info = {
     .class_init = raspi_pico_machine_class_init,
 };
 
+/*
+ * Focal Consumer Duo RP2040 board: a Pico-compatible RP2040 with 16 MiB of
+ * flash (bootloader plus two 2 MiB application banks) and an MCP23S17 I/O
+ * expander on SPI1 that enables the stepper drivers. Its LED strips stream
+ * to PIO through DMA, so PIO TX requests are treated as always ready.
+ */
+#define TYPE_DUO_RP2040_MACHINE MACHINE_TYPE_NAME("duo-rp2040")
+
+static void duo_rp2040_machine_initfn(Object *obj)
+{
+    RaspiPicoMachineState *s = RASPI_PICO_MACHINE(obj);
+
+    s->flash_size = 16 * MiB;
+    s->pio_tx_sink = true;
+    s->spi1_mcp23s17 = true;
+}
+
+static void duo_rp2040_machine_class_init(ObjectClass *oc, const void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "Focal Consumer Duo RP2040 board (Cortex-M0+)";
+}
+
+static const TypeInfo duo_rp2040_machine_info = {
+    .name = TYPE_DUO_RP2040_MACHINE,
+    .parent = TYPE_RASPI_PICO_MACHINE,
+    .instance_init = duo_rp2040_machine_initfn,
+    .class_init = duo_rp2040_machine_class_init,
+};
+
 static void raspi_pico_machine_init(void)
 {
     type_register_static(&raspi_pico_machine_info);
+    type_register_static(&duo_rp2040_machine_info);
 }
 type_init(raspi_pico_machine_init)
