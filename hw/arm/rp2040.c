@@ -20,6 +20,7 @@
 #include "qemu/datadir.h"
 #include "qemu/log.h"
 #include "system/address-spaces.h"
+#include "system/reset.h"
 #include "system/runstate.h"
 #include "target/arm/cpu.h"
 #include "target/arm/cpu-qom.h"
@@ -1567,6 +1568,27 @@ static void rp2040_stop_core1(RP2040State *s)
                      rp2040_stop_core1_async_work, RUN_ON_CPU_NULL);
 }
 
+/*
+ * A system reset (for example a watchdog reboot) resets both processors on
+ * hardware: proc1 restarts in the boot ROM and waits for the SDK's FIFO launch
+ * sequence again.  armv7m_load_kernel() only registers a reset handler for
+ * core 0, so without this proc1 keeps executing the previous image's code.
+ */
+static void rp2040_core1_system_reset(void *opaque)
+{
+    RP2040State *s = opaque;
+    ARMCPU *cpu = s->armv7m[RP2040_PROC1].cpu;
+
+    if (!cpu) {
+        return;
+    }
+    cpu_reset(CPU(cpu));
+    cpu->power_state = PSCI_ON;
+    cpu->env.halt_reason = NOT_HALTED;
+    arm_rebuild_hflags(&cpu->env);
+    CPU(cpu)->halted = 0;
+}
+
 static void rp2040_psm_update(void *opaque)
 {
     RP2040State *s = opaque;
@@ -1945,6 +1967,7 @@ static void rp2040_soc_realize(DeviceState *dev, Error **errp)
                                                "NMI", 0);
     }
     rp2040_update_nmi(s);
+    qemu_register_reset(rp2040_core1_system_reset, s);
 
     if (!sysbus_realize(SYS_BUS_DEVICE(&s->syscfg), errp)) {
         return;

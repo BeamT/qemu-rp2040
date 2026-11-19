@@ -99,6 +99,11 @@ tests += {
     'qemu_args': rp2040_uart_qemu_args,
     'expected_output': 'rp2040-core1-launch.ref',
   },
+  'rp2040-core1-system-reset.S': {
+    'cflags': rp2040_cflags,
+    'qemu_args': rp2040_uart_qemu_args,
+    'expected_output': 'rp2040-core1-system-reset.ref',
+  },
   'rp2040-timer.S': {
     'cflags': rp2040_cflags,
     'qemu_args': rp2040_uart_qemu_args,
